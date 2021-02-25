@@ -93,6 +93,10 @@ class AttentionSAC(object):
         trgt_critic_in = list(zip(next_obs, next_acs))
         critic_in = list(zip(obs, acs))
         next_qs = self.target_critic(trgt_critic_in)
+
+        '''
+        # return_attention True
+        '''
         critic_rets = self.critic(critic_in, regularize=True,
                                   logger=logger, niter=self.niter)
         q_loss = 0
