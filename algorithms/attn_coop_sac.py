@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from utils.misc import soft_update, hard_update, enable_gradients, disable_gradients
 from utils.agents import AttentionAgent
-from utils.critics import AttentionCritic
+from utils.critics import Attn_Coop_Critic
 
 MSELoss = torch.nn.MSELoss()
 
@@ -39,11 +39,11 @@ class Attn_Coop_SAC(object):
         self.agents = [AttentionAgent(lr=pi_lr,
                                       hidden_dim=pol_hidden_dim,
                                       **params)
-                         for params in agent_init_params]
-        self.critic = AttentionCritic(sa_size, hidden_dim=critic_hidden_dim,
-                                      attend_heads=attend_heads)
-        self.target_critic = AttentionCritic(sa_size, hidden_dim=critic_hidden_dim,
-                                             attend_heads=attend_heads)
+                       for params in agent_init_params]
+        self.critic = Attn_Coop_Critic(sa_size, hidden_dim=critic_hidden_dim,
+                                       attend_heads=attend_heads)
+        self.target_critic = Attn_Coop_Critic(sa_size, hidden_dim=critic_hidden_dim,
+                                              attend_heads=attend_heads)
         hard_update(self.target_critic, self.critic)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=q_lr,
                                      weight_decay=1e-3)
@@ -92,24 +92,42 @@ class Attn_Coop_SAC(object):
             next_log_pis.append(curr_next_log_pi)
         trgt_critic_in = list(zip(next_obs, next_acs))
         critic_in = list(zip(obs, acs))
+
+        # next_qs = (ext_next_qs, int_next_qs)
         next_qs = self.target_critic(trgt_critic_in)
 
         '''
-        # return_attention True
+        T.B.U.
+        : (return_attention=True) to calculate "interaction reward"
         '''
+        # critic_rets = ((ext_qs, int_qs), regs)
+        ## critic_rets = ((ext_qs, int_qs), regs, all_attn_probs)
         critic_rets = self.critic(critic_in, regularize=True,
                                   logger=logger, niter=self.niter)
-        q_loss = 0
+        ext_q_loss = 0
+        int_q_loss = 0
         for a_i, nq, log_pi, (pq, regs) in zip(range(self.nagents), next_qs,
                                                next_log_pis, critic_rets):
-            target_q = (rews[a_i].view(-1, 1) +
-                        self.gamma * nq *
-                        (1 - dones[a_i].view(-1, 1)))
+            ext_nq, int_nq = nq
+            ext_pq, int_pq = pq
+
+            # extrinsic head
+            ext_target_q = (rews[a_i].view(-1, 1) +
+                            self.gamma * ext_nq *
+                            (1 - dones[a_i].view(-1, 1)))
             if soft:
-                target_q -= log_pi / self.reward_scale
-            q_loss += MSELoss(pq, target_q.detach())
+                ext_target_q -= log_pi / self.reward_scale
+            ext_q_loss += MSELoss(ext_pq, ext_target_q.detach())
+            
+            # intrinsic head
+            # T.B.U. : needs to get intrinsic reward
+            int_target_q = None
+            int_q_loss = None
+
             for reg in regs:
-                q_loss += reg  # regularizing attention
+                ext_q_loss += reg  # regularizing attention
+                int_q_loss += reg
+
         q_loss.backward()
         self.critic.scale_shared_grads()
         grad_norm = torch.nn.utils.clip_grad_norm(
@@ -169,7 +187,6 @@ class Attn_Coop_SAC(object):
                                   pol_loss, self.niter)
                 logger.add_scalar('agent%i/grad_norms/pi' % a_i,
                                   grad_norm, self.niter)
-
 
     def update_all_targets(self):
         """

@@ -52,7 +52,7 @@ class AttentionCritic(nn.Module):
             state_encoder = nn.Sequential()
             if norm_in:
                 state_encoder.add_module('s_enc_bn', nn.BatchNorm1d(
-                                            sdim, affine=False))
+                                         sdim, affine=False))
             state_encoder.add_module('s_enc_fc1', nn.Linear(sdim,
                                                             hidden_dim))
             state_encoder.add_module('s_enc_nl', nn.LeakyReLU())
@@ -66,7 +66,7 @@ class AttentionCritic(nn.Module):
             self.key_extractors.append(nn.Linear(hidden_dim, attend_dim, bias=False))
             self.selector_extractors.append(nn.Linear(hidden_dim, attend_dim, bias=False))
             self.value_extractors.append(nn.Sequential(nn.Linear(hidden_dim,
-                                                                attend_dim),
+                                                                 attend_dim),
                                                        nn.LeakyReLU()))
 
         self.shared_modules = [self.key_extractors, self.selector_extractors,
@@ -180,6 +180,9 @@ class Attn_Coop_Critic(nn.Module):
     Attention network, used as critic for all agents. Each agent gets its own
     observation and action, and can also attend over the other agents' encoded
     observations and actions.
+
+    REVISED
+    1) Calculate extrinsic critic head and intrinsic critic head seperatly.
     """
     def __init__(self, sa_sizes, hidden_dim=32, norm_in=True, attend_heads=1):
         """
@@ -239,7 +242,7 @@ class Attn_Coop_Critic(nn.Module):
             state_encoder = nn.Sequential()
             if norm_in:
                 state_encoder.add_module('s_enc_bn', nn.BatchNorm1d(
-                                            sdim, affine=False))
+                                         sdim, affine=False))
             state_encoder.add_module('s_enc_fc1', nn.Linear(sdim,
                                                             hidden_dim))
             state_encoder.add_module('s_enc_nl', nn.LeakyReLU())
@@ -253,7 +256,7 @@ class Attn_Coop_Critic(nn.Module):
             self.key_extractors.append(nn.Linear(hidden_dim, attend_dim, bias=False))
             self.selector_extractors.append(nn.Linear(hidden_dim, attend_dim, bias=False))
             self.value_extractors.append(nn.Sequential(nn.Linear(hidden_dim,
-                                                                attend_dim),
+                                                                 attend_dim),
                                                        nn.LeakyReLU()))
 
         self.shared_modules = [self.key_extractors, self.selector_extractors,
@@ -287,9 +290,14 @@ class Attn_Coop_Critic(nn.Module):
             return_attend (bool): return attention weights per agent
             logger (TensorboardX SummaryWriter): If passed in, important values
                                                  are logged
-        
+
         Returns:
-            Qs
+            (ext_q, int_q): tuple of q values for input actions w.r.t.
+                            extrinsic and intrinsic reward
+            (ext_all_q, int_all_q): tuple of q values for all the actions
+                                    w.r.t. extrinsic and intrinsic reward
+            regs: magnitude of attention logits (sum w.r.t. attention heads)
+            all_attend_probs: attention probabilities of all the heads
         """
         if agents is None:
             agents = range(len(self.critic_encoders))
@@ -304,7 +312,7 @@ class Attn_Coop_Critic(nn.Module):
         # extract state encoding for each agent that we're returning Q for
         # [tensor(*, h_dim)] * n_agents
         s_encodings = [self.state_encoders[a_i](states[a_i]) for a_i in agents]
-        
+
         # extract keys for each head for each agent
         # [[tensor(*, attn_dim)] * n_agents] * attention_heads
         all_head_keys = [[k_ext(enc) for enc in sa_encodings] for k_ext in self.key_extractors]
@@ -318,18 +326,18 @@ class Attn_Coop_Critic(nn.Module):
         other_all_values = [[] for _ in range(len(agents))]
         all_attend_logits = [[] for _ in range(len(agents))]
         all_attend_probs = [[] for _ in range(len(agents))]
-        
+
         # calculate attention per head
         for curr_head_keys, curr_head_values, curr_head_selectors in zip(
                 all_head_keys, all_head_values, all_head_selectors):
-            
+
             # iterate over agents
             for i, a_i, selector in zip(range(len(agents)), agents, curr_head_selectors):
 
                 # [tensor(*, attn_dim)] * (n_agents - 1)
                 keys = [k for j, k in enumerate(curr_head_keys) if j != a_i]
                 values = [v for j, v in enumerate(curr_head_values) if j != a_i]
-                
+
                 # calculate attention across agents
                 # (Q*K)
                 # tensor(*, 1, n_agents-1)
@@ -347,6 +355,7 @@ class Attn_Coop_Critic(nn.Module):
                 other_all_values[i].append(other_values)
                 all_attend_logits[i].append(attend_logits)
                 all_attend_probs[i].append(attend_weights)
+
         # calculate Q per agent
         all_rets = []
         for i, a_i in enumerate(agents):
@@ -354,17 +363,19 @@ class Attn_Coop_Critic(nn.Module):
                                .mean()) for probs in all_attend_probs[i]]
             agent_rets = []
             critic_in = torch.cat((s_encodings[i], *other_all_values[i]), dim=1)
-            
+
             '''
             T.B.U. -> split critics to extrinsic head and intrinsic head
             '''
-            all_q = self.critics[a_i](critic_in)
-            int_acs = actions[a_i].max(dim=1, keepdim=True)[1]
-            q = all_q.gather(1, int_acs)
+            ext_all_q = self.ext_critics[a_i](critic_in)
+            int_all_q = self.int_critics[a_i](critic_in)
+            discrete_acs = actions[a_i].max(dim=1, keepdim=True)[1]
+            ext_q = ext_all_q.gather(1, discrete_acs)
+            int_q = int_all_q.gather(1, discrete_acs)
             if return_q:
-                agent_rets.append(q)
+                agent_rets.append((ext_q, int_q))
             if return_all_q:
-                agent_rets.append(all_q)
+                agent_rets.append((ext_all_q, int_all_q))
             if regularize:
                 # regularize magnitude of attention logits
                 attend_mag_reg = 1e-3 * sum((logit**2).mean() for logit in
