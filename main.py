@@ -10,6 +10,7 @@ from utils.make_env import make_env
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.attention_sac import AttentionSAC
+from algorithms.attn_coop_sac import Attn_Coop_SAC
 
 
 def make_parallel_env(env_id, n_rollout_threads, seed):
@@ -46,15 +47,24 @@ def run(config):
     torch.manual_seed(run_num)
     np.random.seed(run_num)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, run_num)
-    model = AttentionSAC.init_from_env(env,
-                                       tau=config.tau,
-                                       pi_lr=config.pi_lr,
-                                       q_lr=config.q_lr,
-                                       gamma=config.gamma,
-                                       pol_hidden_dim=config.pol_hidden_dim,
-                                       critic_hidden_dim=config.critic_hidden_dim,
-                                       attend_heads=config.attend_heads,
-                                       reward_scale=config.reward_scale)
+    # model = AttentionSAC.init_from_env(env,
+    #                                    tau=config.tau,
+    #                                    pi_lr=config.pi_lr,
+    #                                    q_lr=config.q_lr,
+    #                                    gamma=config.gamma,
+    #                                    pol_hidden_dim=config.pol_hidden_dim,
+    #                                    critic_hidden_dim=config.critic_hidden_dim,
+    #                                    attend_heads=config.attend_heads,
+    #                                    reward_scale=config.reward_scale)
+    model = Attn_Coop_SAC.init_from_env(env,
+                                        tau=config.tau,
+                                        pi_lr=config.pi_lr,
+                                        q_lr=config.q_lr,
+                                        gamma=config.gamma,
+                                        pol_hidden_dim=config.pol_hidden_dim,
+                                        critic_hidden_dim=config.critic_hidden_dim,
+                                        attend_heads=config.attend_heads,
+                                        reward_scale=config.reward_scale)
     replay_buffer = ReplayBuffer(config.buffer_length, model.nagents,
                                  [obsp.shape[0] for obsp in env.observation_space],
                                  [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
@@ -115,11 +125,13 @@ def run(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("env_id", help="Name of environment")
-    parser.add_argument("model_name",
-                        help="Name of directory to store " +
-                             "model/training contents")
-    parser.add_argument("--n_rollout_threads", default=12, type=int)
+    # parser.add_argument("env_id", help="Name of environment", default='sparse_rt')
+    parser.add_argument("--env_id", default='sparse_rt')
+    # parser.add_argument("model_name",
+    #                     help="Name of directory to store " +
+    #                          "model/training contents", default='try2')
+    parser.add_argument("--model_name", default='try2')
+    parser.add_argument("--n_rollout_threads", default=1, type=int)
     parser.add_argument("--buffer_length", default=int(1e6), type=int)
     parser.add_argument("--n_episodes", default=50000, type=int)
     parser.add_argument("--episode_length", default=25, type=int)

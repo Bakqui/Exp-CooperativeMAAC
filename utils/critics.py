@@ -277,7 +277,8 @@ class Attn_Coop_Critic(nn.Module):
             p.grad.data.mul_(1. / self.nagents)
 
     def forward(self, inps, agents=None, return_q=True, return_all_q=False,
-                regularize=False, return_attend=False, logger=None, niter=0):
+                regularize=False, return_attend=False, return_entropy=False,
+                logger=None, niter=0):
         """
         Inputs:
             inps (list of PyTorch Matrices): Inputs to each agents' encoder
@@ -288,6 +289,7 @@ class Attn_Coop_Critic(nn.Module):
             regularize (bool): returns values to add to loss function for
                                regularization
             return_attend (bool): return attention weights per agent
+            return_entropy (bool): return attention head entropies per agent
             logger (TensorboardX SummaryWriter): If passed in, important values
                                                  are logged
 
@@ -384,6 +386,12 @@ class Attn_Coop_Critic(nn.Module):
                 agent_rets.append(regs)
             if return_attend:
                 agent_rets.append(np.array(all_attend_probs[i]))
+            if return_entropy:
+
+                int_rews = [(-((probs + 1e-8).log() * probs).squeeze().sum(1, keepdim=True))
+                            for probs in all_attend_probs[i]]
+                int_rew = 1e-2 * torch.cat(int_rews, 1).mean(1).detach()
+                agent_rets.append(int_rew)
             if logger is not None:
                 logger.add_scalars('agent%i/attention' % a_i,
                                    dict(('head%i_entropy' % h_i, ent) for h_i, ent

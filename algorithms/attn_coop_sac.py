@@ -103,11 +103,12 @@ class Attn_Coop_SAC(object):
         # critic_rets = ((ext_qs, int_qs), regs)
         ## critic_rets = ((ext_qs, int_qs), regs, all_attn_probs)
         critic_rets = self.critic(critic_in, regularize=True,
-                                  logger=logger, niter=self.niter)
-        ext_q_loss = 0
-        int_q_loss = 0
-        for a_i, nq, log_pi, (pq, regs) in zip(range(self.nagents), next_qs,
-                                               next_log_pis, critic_rets):
+                                  logger=logger, niter=self.niter,
+                                  return_entropy=True)
+        q_loss = 0
+        for a_i, nq, log_pi, (pq, regs, attn_ent) in zip(range(self.nagents),
+                                                         next_qs, next_log_pis,
+                                                         critic_rets):
             ext_nq, int_nq = nq
             ext_pq, int_pq = pq
 
@@ -117,18 +118,22 @@ class Attn_Coop_SAC(object):
                             (1 - dones[a_i].view(-1, 1)))
             if soft:
                 ext_target_q -= log_pi / self.reward_scale
-            ext_q_loss += MSELoss(ext_pq, ext_target_q.detach())
-            
+            q_loss += MSELoss(ext_pq, ext_target_q.detach())
+
             # intrinsic head
             # T.B.U. : needs to get intrinsic reward
-            int_target_q = None
-            int_q_loss = None
+            int_target_q = (attn_ent.view(-1, 1) +
+                            self.gamma * int_nq *
+                            (1 - dones[a_i].view(-1, 1)))
+            if soft:
+                int_target_q -= log_pi / self.reward_scale
+            q_loss += MSELoss(int_pq, int_target_q.detach())
 
             for reg in regs:
-                ext_q_loss += reg  # regularizing attention
-                int_q_loss += reg
+                q_loss += reg  # regularizing attention
 
         q_loss.backward()
+
         self.critic.scale_shared_grads()
         grad_norm = torch.nn.utils.clip_grad_norm(
             self.critic.parameters(), 10 * self.nagents)
@@ -136,7 +141,7 @@ class Attn_Coop_SAC(object):
         self.critic_optimizer.zero_grad()
 
         if logger is not None:
-            logger.add_scalar('losses/q_loss', q_loss, self.niter)
+            logger.add_scalar('losses/ext_q_loss', q_loss, self.niter)
             logger.add_scalar('grad_norms/q', grad_norm, self.niter)
         self.niter += 1
 
@@ -163,9 +168,12 @@ class Attn_Coop_SAC(object):
         for a_i, probs, log_pi, pol_regs, (q, all_q) in zip(range(self.nagents), all_probs,
                                                             all_log_pis, all_pol_regs,
                                                             critic_rets):
+            ext_q, int_q = q
+            ext_all_q, int_all_q = all_q
             curr_agent = self.agents[a_i]
-            v = (all_q * probs).sum(dim=1, keepdim=True)
-            pol_target = q - v
+            ext_v = (ext_all_q * probs).sum(dim=1, keepdim=True)
+            int_v = (int_all_q * probs).sum(dim=1, keepdim=True)
+            pol_target = ext_q - ext_v + int_q - int_v
             if soft:
                 pol_loss = (log_pi * (log_pi / self.reward_scale - pol_target).detach()).mean()
             else:
