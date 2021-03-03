@@ -122,7 +122,7 @@ class Attn_Coop_SAC(object):
 
             # intrinsic head
             # T.B.U. : needs to get intrinsic reward
-            int_target_q = (attn_ent.view(-1, 1) +
+            int_target_q = (-attn_ent.view(-1, 1) +
                             self.gamma * int_nq *
                             (1 - dones[a_i].view(-1, 1)))
             if soft:

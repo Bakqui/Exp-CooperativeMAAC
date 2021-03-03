@@ -54,7 +54,7 @@ class DiscretePolicy(BasePolicy):
     def __init__(self, *args, **kwargs):
         super(DiscretePolicy, self).__init__(*args, **kwargs)
 
-    def forward(self, obs, sample=True, return_all_probs=False,
+    def forward(self, obs, sample=False, return_all_probs=False,
                 return_log_pi=False, regularize=False,
                 return_entropy=False):
         out = super(DiscretePolicy, self).forward(obs)
@@ -63,7 +63,7 @@ class DiscretePolicy(BasePolicy):
         if sample:
             int_act, act = categorical_sample(probs, use_cuda=on_gpu)
         else:
-            act = onehot_from_logits(probs)
+            int_act, act = onehot_from_logits(probs, ret_int=True)
         rets = [act]
         if return_log_pi or return_entropy:
             log_probs = F.log_softmax(out, dim=1)

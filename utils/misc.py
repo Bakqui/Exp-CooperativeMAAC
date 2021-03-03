@@ -45,15 +45,19 @@ def init_processes(rank, size, fn, backend='gloo'):
     dist.init_process_group(backend, rank=rank, world_size=size)
     fn(rank, size)
 
-def onehot_from_logits(logits, eps=0.0, dim=1):
+def onehot_from_logits(logits, eps=0.0, dim=1, ret_int=False):
     """
     Given batch of logits, return one-hot sample using epsilon greedy strategy
     (based on given epsilon)
     """
     # get best (according to current policy) actions in one-hot form
-    argmax_acs = (logits == logits.max(dim, keepdim=True)[0]).float()
+    max_acs, int_acs = logits.max(dim, keepdim=True)
+    argmax_acs = (logits == max_acs).float()
     if eps == 0.0:
-        return argmax_acs
+        if ret_int:
+            return int_acs, argmax_acs
+        else:
+            return argmax_acs
     # get random actions in one-hot form
     rand_acs = Variable(torch.eye(logits.shape[1])[[np.random.choice(
         range(logits.shape[1]), size=logits.shape[0])]], requires_grad=False)

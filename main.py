@@ -83,7 +83,7 @@ def run(config):
                                   requires_grad=False)
                          for i in range(model.nagents)]
             # get actions as torch Variables
-            torch_agent_actions = model.step(torch_obs, explore=True)
+            torch_agent_actions = model.step(torch_obs, explore=False)
             # convert actions to numpy arrays
             agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
             # rearrange actions to be per environment
@@ -125,13 +125,11 @@ def run(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # parser.add_argument("env_id", help="Name of environment", default='sparse_rt')
-    parser.add_argument("--env_id", default='sparse_rt')
-    # parser.add_argument("model_name",
-    #                     help="Name of directory to store " +
-    #                          "model/training contents", default='try2')
-    parser.add_argument("--model_name", default='try2')
-    parser.add_argument("--n_rollout_threads", default=1, type=int)
+    parser.add_argument("env_id", help="Name of environment")
+    parser.add_argument("model_name",
+                        help="Name of directory to store " +
+                             "model/training contents")
+    parser.add_argument("--n_rollout_threads", default=12, type=int)
     parser.add_argument("--buffer_length", default=int(1e6), type=int)
     parser.add_argument("--n_episodes", default=50000, type=int)
     parser.add_argument("--episode_length", default=25, type=int)

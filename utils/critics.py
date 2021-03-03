@@ -390,7 +390,7 @@ class Attn_Coop_Critic(nn.Module):
 
                 int_rews = [(-((probs + 1e-8).log() * probs).squeeze().sum(1, keepdim=True))
                             for probs in all_attend_probs[i]]
-                int_rew = 1e-2 * torch.cat(int_rews, 1).mean(1).detach()
+                int_rew = torch.cat(int_rews, 1).mean(1).detach()
                 agent_rets.append(int_rew)
             if logger is not None:
                 logger.add_scalars('agent%i/attention' % a_i,

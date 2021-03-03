@@ -84,7 +84,7 @@ class Scenario(BaseScenario):
 
     def benchmark_data(self, agent, world):
         # returns data for benchmarking purposes
-        return reward(agent, world)
+        return self.reward(agent, world)
 
     def is_collision(self, agent1, agent2):
         delta_pos = agent1.state.p_pos - agent2.state.p_pos
@@ -94,12 +94,15 @@ class Scenario(BaseScenario):
 
     def calc_rewards(self, world):
         rews = []
+        n_success = 0
         for speaker in world.speakers:
             if self.is_collision(speaker.goal_a, speaker.goal_b):
-                rew = 1.0
-            else:
-                rew = 0.
-            rews.append(rew)
+                n_success += 1
+        if n_success == len(world.speakers):
+            rew = 1.
+        else:
+            rew = 0.
+        rews = [rew] * len(world.speakers)
         return rews
 
     def reward(self, agent, world):
@@ -153,4 +156,3 @@ class Scenario(BaseScenario):
             #
             # obs += [speaker.state.c for speaker in world.speakers]
             return np.concatenate(obs)
-            
